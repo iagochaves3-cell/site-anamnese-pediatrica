@@ -1,0 +1,20 @@
+{
+  "version": "2026-09-20.1",
+  "documents": [
+    {
+      "path": "nexo/ARQUIVO_A_NEXO_Clinical_Nucleo_Global_Tratamentos.pdf",
+      "sha256": "f57124ceadfcc216b9856b5a465418d359359a495b2cf2578aa826fdfd0ce5e5"
+    },
+    {
+      "path": "nexo/Manual_Integral_Prescricao_Pediatrica_Segura.pdf",
+      "sha256": "f894819802d52df761e4262b755cfce717999f75d90dcb1b9923fe56c5f80e03"
+    }
+  ],
+  "runtimeConsumers": [
+    "dist/app.mjs::createSummary",
+    "dist/app.mjs::createPhysicalExam",
+    "dist/app.mjs::getExamTemplate"
+  ],
+  "scope": "Documentação de fatos informados, negados explicitamente, ausentes e conflitantes. Não contém motor de dose.",
+  "pending": "Validação clínica integral do acervo documental não concluída. Modelo hígido automático conforme pedido de 09/10/2026; valores preenchidos e alterações têm prioridade. Padrões não equivalem a medidas observadas."
+}

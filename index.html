@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anamnese Pediátrica Guiada</title>
+  <meta name="description" content="Anamnese pediátrica com perguntas agrupadas, exame físico unificado e resumo clínico copiável.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b0e14'/%3E%3Cpath d='M18 32h28M32 18v28' stroke='%23e7b76a' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="wordmark" aria-hidden="true"><span class="mark">A</span><span class="signature">pediátrica</span></div>
+      <h1>Anamnese Pediátrica <em>Guiada</em></h1>
+      <div class="eyebrow">Apoio clínico estruturado</div>
+    </div>
+    <div class="status"><span class="dot"></span> coleta local · sem inferências automáticas</div>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="coleta-title">
+      <div class="panel-head">
+        <div>
+          <div class="label" id="sectionLabel" hidden>Identificação</div>
+          <h2 id="coleta-title">Coleta clínica guiada</h2>
+          <p>Preencha os dados disponíveis, reúna as alterações do exame no campo único e revise a conduta.</p>
+          <p class="collection-note">Itens não preenchidos não serão relatados no Resumo Clínico final<br>Ao pular algum item, a informação também será omitida</p>
+        </div>
+        <button class="ghost" id="newPatient" type="button">Novo paciente</button>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="progress-meta"><span id="stepTitle">Preparando coleta…</span><span id="stepCount"></span><div class="top-navigation"><button class="secondary" id="prevTop" type="button" disabled>← Item anterior</button><button class="primary" id="nextTop" type="button">Próxima etapa →</button></div></div>
+        <div class="progress" role="progressbar" aria-label="Progresso da coleta" aria-valuemin="1" aria-valuemax="1" aria-valuenow="1"><div id="progressBar"></div></div>
+      </div>
+
+      <form id="anamnesisForm" novalidate>
+        <section class="question-card" id="questionCard" aria-live="polite"></section>
+      </form>
+
+      <div class="actions">
+        <button class="secondary" id="prev" type="button" disabled>← Item anterior</button>
+        <button class="primary" id="next" type="button">Próxima etapa →</button>
+      </div>
+      <p class="skip-note">Itens opcionais. Avance para deixar sem resposta.</p>
+    </section>
+
+    <div class="summary-cell">
+    <aside class="summary" aria-labelledby="summaryTitle">
+      <div class="summary-head">
+        <div><div class="label">Saída copiável</div><h2 id="summaryTitle">Resumo clínico</h2></div>
+        <div class="summary-tools">
+          <button class="ghost" id="copy" type="button" disabled>Copiar tudo</button>
+          <button class="ghost" id="print" type="button" disabled>Imprimir</button>
+        </div>
+      </div>
+      <div class="summary-empty" id="summaryEmpty">Resumo disponível ao concluir a coleta.</div>
+      <div class="summary-content" id="summaryContent"></div>
+      <div class="copy-state" id="copyState" role="status" aria-live="polite"></div>
+      <p class="privacy-note"><span aria-hidden="true">●</span> Os dados preenchidos não são enviados nem salvos por esta página.</p>
+    </aside>
+    </div>
+
+  </main>
+
+  <footer class="footer">Revise e confirme todos os dados antes do uso assistencial.<span class="footer-credit">Desenvolvido por Iago Almeida</span></footer>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

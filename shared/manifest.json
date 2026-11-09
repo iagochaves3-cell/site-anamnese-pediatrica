@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-09T06:52:02Z",
+  "canonicalHash": "268dda90584ec64838b1cd0c86ea0468c38a6801c52bea38d815617984ef4e30",
+  "bundleHash": "149c70ecc650ceeaf8ae93c0f268c980db1b73cb43c003b78543ec0e75237aaf",
+  "destination": {
+    "projectId": "appgprj_6aabe6b0ef448191b00700a7062f891c",
+    "title": "Anamnese Pediátrica Interativa",
+    "slug": "anamnese-pediatrica",
+    "scope": "anamnesis"
+  },
+  "counts": {
+    "diagnoses": 903,
+    "medications": 0,
+    "therapies": 0,
+    "scores": 73,
+    "pedwbTopics": 330,
+    "documents": 0
+  },
+  "policy": {
+    "purpose": "Compartilhamento contextual de diagnósticos, síndromes, medicamentos e linhas terapêuticas entre SitesGPTs clínicos.",
+    "safety": "Conteúdo importado mantém proveniência e não é promovido automaticamente para cálculo ou prescrição. Regimes numéricos exigem indicação, população, apresentação, fonte e tripla checagem clínica, farmacêutica e matemática/reversa no destino.",
+    "deduplication": "Normalização lexical agrupa variantes e terapêuticas pela identidade clínica (nome + diagnósticos), independentemente do módulo exportador; registros originais permanecem em sources e divergências não são fundidas silenciosamente.",
+    "applicability": "Cada destino recebe somente as categorias compatíveis com sua finalidade operacional."
+  }
+}
