@@ -402,12 +402,20 @@ export function getExamTemplate(state = {}) {
   const resp=Number(clean(state.respRate).replace(',','.'));
   if(clean(state.respRate) && (!band || !Number.isFinite(resp) || resp<band.rr[0] || resp>band.rr[1])) {delete model.respiratory;delete model.general;}
   const refill=Number(clean(state.capillaryRefill).replace(',','.').replace(/\s*s(?:egundos?)?$/i,''));
-  if(clean(state.capillaryRefill) && (!Number.isFinite(refill) || refill>2)) {delete model.cardiovascular;delete model.skin;delete model.general;}
+  let perfusionAltered=false;
+  if(clean(state.capillaryRefill) && (!Number.isFinite(refill) || refill>2)) {delete model.cardiovascular;delete model.skin;delete model.general;perfusionAltered=true;}
   // Hipotensão sistólica (PALS 2020): sem idade não há como conferir, então a frase-padrão também é omitida.
   const systolic=Number(clean(state.bloodPressure).match(/^\s*(\d{1,3}(?:[.,]\d+)?)\s*(?:\/|x|X)/)?.[1]?.replace(',','.'));
-  if(clean(state.bloodPressure).match(/^\s*\d{1,3}(?:[.,]\d+)?\s*(?:\/|x|X)/) && (months===null || systolic<systolicHypotensionLimit(months))) {delete model.cardiovascular;delete model.general;}
+  if(clean(state.bloodPressure).match(/^\s*\d{1,3}(?:[.,]\d+)?\s*(?:\/|x|X)/) && (months===null || systolic<systolicHypotensionLimit(months))) {delete model.cardiovascular;delete model.general;perfusionAltered=true;}
+  // O modelo locomotor ortopédico afirma "avaliação vascular preservada, com pulsos periféricos palpáveis": com TEC
+  // prolongado ou hipotensão, é retirado para que o achado examinado seja descrito.
+  if(perfusionAltered && isOrthopedic(state)) delete model.locomotor;
   return model;
 }
+
+// Texto da prévia do modelo; a confirmação guarda esta prévia e só vale enquanto ela não mudar.
+export const examPreviewText = state => Object.entries(getExamTemplate(state)).map(([id,value])=>`- ${examLabels[id]}: ${value}`).join('\n');
+const examConfirmationCurrent = state => state.examTemplateConfirmed==='sim' && (!clean(state.examTemplatePreview) || state.examTemplatePreview===examPreviewText(state));
 
 // Faixas de vigília PALS/AHA 2020 (FC em bpm; FR em irpm). Fora da faixa, o modelo do sistema é retirado.
 const vitalBand = months => {
@@ -473,7 +481,7 @@ export function createPhysicalExam(state = {}) {
     labeled('Glicemia',state.glucose,' mg/dL'),labeled('ECG',state.ecg)
   ].filter(Boolean);
   const manual=parsePhysicalExamChanges(state.physicalExamChanges);
-  const model=state.examTemplateConfirmed==='sim'?getExamTemplate(state):{};
+  const model=examConfirmationCurrent(state)?getExamTemplate(state):{};
   // Preserve caller-supplied exam findings; no old per-system inputs remain in the UI.
   const explicit={};
   for(const id of Object.keys(examLabels)) if(clean(state[id])) explicit[id]=clean(state[id]);
@@ -482,7 +490,8 @@ export function createPhysicalExam(state = {}) {
   // but suppresses the broad "bom estado geral" sentence to avoid contradiction.
   if(manual.some(record=>!record.systems.length)) delete model.general;
   for(const id of Object.keys(explicit)) delete model[id];
-  if(explicit.respiratory===normalTemplate.respiratory && !Object.hasOwn(getExamTemplate(state),'respiratory')) delete explicit.respiratory;
+  const templateForSigns=getExamTemplate(state);
+  for(const id of Object.keys(explicit)) if(explicit[id]===normalTemplate[id] && !Object.hasOwn(templateForSigns,id)) delete explicit[id];
   if(manual.some(record=>record.systems.includes('neurological') && /sonol|hiporrespons|coma|convuls|paresia|plegia/.test(normalized(record.text)))) delete model.general;
   const directedNeuro=[['neuroPupils','as pupilas apresentaram'],['neuroOcular','os movimentos oculares apresentaram'],['neuroCranial','os pares cranianos e a face apresentaram'],['neuroMotor','a força e a motricidade apresentaram'],['neuroTone','o tônus e os movimentos apresentaram'],['neuroSensory','a sensibilidade apresentou'],['neuroCerebellar','a coordenação apresentou'],['neuroGait','a marcha e o equilíbrio apresentaram'],['neuroReflexes','os reflexos apresentaram'],['neuroMeningeal','quanto a foco e meningismo, observou-se'],['neuroSkull','no crânio e escalpo, observou-se'],['neuroFontanelle','a fontanela apresentou'],['neuroPrimitive','os reflexos primitivos apresentaram'],['neuroOther','adicionalmente, observou-se']].map(([id,prefix])=>detailClause(prefix,state[id])).filter(Boolean);
   if(directedNeuro.length) {explicit.neurological=directedNeuro.map(sentence).join(' ');delete model.neurological;}
@@ -759,6 +768,8 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
 }
 
+const examTemplateStaleMessage='O modelo mudou com os dados informados; confira e confirme de novo.';
+
 function fieldHtml(field, state) {
   const full = field.full ? ' full' : '';
   const value = state[field.id] ?? field.defaultValue ?? (field.type === 'checklist' ? [] : '');
@@ -778,10 +789,10 @@ function fieldHtml(field, state) {
     return `<div class="field${full}"><label for="${escapeHtml(field.id)}">${escapeHtml(field.label)}</label>${questionsHelp?`<small class="field-help" id="${field.id}-help">${escapeHtml(field.placeholder)}</small>`:''}<textarea id="${escapeHtml(field.id)}" name="${escapeHtml(field.id)}" ${questionsHelp?`aria-describedby="${field.id}-help"`:''} placeholder="${escapeHtml(questionsHelp?'Registre as respostas e os achados pertinentes.':field.placeholder)}">${escapeHtml(value)}</textarea></div>`;
   }
   if (field.type === 'examTemplate') {
-    const model=getExamTemplate(state);
-    const preview=Object.entries(model).map(([id,value])=>`- ${examLabels[id]}: ${value}`).join('\n');
+    const preview=examPreviewText(state);
+    const stale=value==='sim' && !examConfirmationCurrent(state);
     const reflexReference=`<details class="reflex-reference"><summary>Reflexos primitivos — referência para lactentes</summary><p>Faixas aproximadas para interpretar o exame; registrar somente os reflexos efetivamente avaliados e considerar a idade corrigida nos prematuros.</p><table><thead><tr><th scope="col">Reflexo</th><th scope="col">Integração / evolução habitual</th></tr></thead><tbody><tr><td>Moro</td><td>Diminui a partir de cerca de 2 meses; habitualmente integrado até 6 meses.</td></tr><tr><td>Preensão palmar</td><td>Cerca de 5–6 meses.</td></tr><tr><td>Preensão plantar</td><td>Cerca de 9–12 meses.</td></tr><tr><td>Tônico-cervical assimétrico</td><td>Cerca de 5–7 meses.</td></tr><tr><td>Busca</td><td>Cerca de 4 meses.</td></tr><tr><td>Sucção reflexa</td><td>O componente primitivo se integra no primeiro semestre; a sucção funcional permanece.</td></tr><tr><td>Marcha automática</td><td>Cerca de 2 meses.</td></tr><tr><td>Resposta plantar extensora (Babinski)</td><td>Pode ser fisiológica até 24 meses, com transição frequentemente entre 12 e 24 meses.</td></tr></tbody></table><p class="reflex-sources">Referências: <a href="https://www.healthychildren.org/English/ages-stages/baby/Pages/Newborn-Reflexes.aspx" target="_blank" rel="noopener noreferrer">AAP</a> · <a href="https://www.saude.pr.gov.br/sites/default/arquivos_restritos/files/documento/2020-04/neurodesenvolvimentoaulasesa.pdf" target="_blank" rel="noopener noreferrer">SESA-PR / Sociedade Paranaense de Pediatria</a> · <a href="https://medlineplus.gov/ency/article/003294.htm" target="_blank" rel="noopener noreferrer">MedlinePlus</a></p></details>`;
-    return `<div class="field full"><details class="normal-model" open><summary>Modelo completo do exame físico</summary><pre>${escapeHtml(preview)}</pre><label class="check"><input type="checkbox" name="${field.id}" value="sim" ${value==='sim'?'checked':''}><span>Examinei e conferi os achados do modelo aplicáveis à idade. Aplicar o modelo confirmado ao resumo; valores preenchidos e alterações registradas têm prioridade. Sinais vitais ausentes não são preenchidos automaticamente.</span></label>${reflexReference}</details></div>`;
+    return `<div class="field full"><details class="normal-model" open><summary>Modelo completo do exame físico</summary><pre>${escapeHtml(preview)}</pre><label class="check"><input type="checkbox" name="${field.id}" value="sim" ${value==='sim'&&!stale?'checked':''}><span>Examinei e conferi os achados do modelo aplicáveis à idade. Aplicar o modelo confirmado ao resumo; valores preenchidos e alterações registradas têm prioridade. Sinais vitais ausentes não são preenchidos automaticamente.</span></label><small class="field-help" id="examTemplateStatus" role="status" aria-live="polite">${stale?examTemplateStaleMessage:''}</small>${reflexReference}</details></div>`;
   }
   const attributes = [['type',field.inputType||'text'],['min',field.min],['max',field.max],['step',field.step]].filter(([,v])=>v!==undefined).map(([k,v])=>`${k}="${escapeHtml(v)}"`).join(' ');
   return `<div class="field${full}"><label for="${escapeHtml(field.id)}">${escapeHtml(field.label)}${field.suffix?` (${escapeHtml(field.suffix)})`:''}</label><input id="${escapeHtml(field.id)}" name="${escapeHtml(field.id)}" ${attributes} value="${escapeHtml(value)}" placeholder="${escapeHtml(field.placeholder)}" autocomplete="off"></div>`;
@@ -910,12 +921,33 @@ function startWizard() {
   $('prev').addEventListener('click',retreatStep);
   $('prevTop').addEventListener('click',retreatStep);
 
+  function syncExamPreview() {
+    const box=$('questionCard').querySelector('details.normal-model');
+    if(!box) return;
+    const preview=examPreviewText(state);
+    const pre=box.querySelector('pre');
+    if(pre && pre.textContent!==preview) pre.textContent=preview;
+    const check=box.querySelector('input[name="examTemplateConfirmed"]');
+    const status=box.querySelector('#examTemplateStatus');
+    if(!check) return;
+    if(!check.checked) { state.examTemplatePreview=''; return; }
+    if(clean(state.examTemplatePreview) && state.examTemplatePreview!==preview) {
+      check.checked=false; state.examTemplateConfirmed=''; state.examTemplatePreview='';
+      if(status) status.textContent=examTemplateStaleMessage;
+      return;
+    }
+    state.examTemplatePreview=preview;
+    if(status) status.textContent='';
+  }
+
   $('anamnesisForm').addEventListener('input',()=>{
     saveCurrent();
+    syncExamPreview();
     if (completed) renderSummary();
   });
   $('anamnesisForm').addEventListener('change',()=>{
     saveCurrent();
+    syncExamPreview();
     if (completed) renderSummary();
   });
 
