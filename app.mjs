@@ -325,20 +325,58 @@ const statusClause = (kind,status,details) => {
 
 export const examLabels = Object.freeze({general:'Estado geral',neurological:'SN',skull:'Crânio',otoscopy:'Otoscopia',oroscopy:'Oroscopia',rhinoscopy:'Rinoscopia anterior',neck:'Linfonodos/pescoço',respiratory:'SR',cardiovascular:'SCV',abdomen:'SD',skin:'Pele e fâneros',locomotor:'Aparelho locomotor'});
 const normalized = value => clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+// Unidades de idade: singular quando o valor é exatamente 1 ("1 ano", "1 mês", "1 dia", "1 semana").
+const ageUnitLabels = {a:['ano','anos'],m:['mês','meses'],d:['dia','dias'],s:['semana','semanas']};
+const ageUnitKey = unit => {
+  const u=normalized(unit);
+  return /^a/.test(u)?'a':/^m/.test(u)?'m':/^d/.test(u)?'d':/^s/.test(u)?'s':'';
+};
+const ageUnitText = (value,unit) => {
+  const key=ageUnitKey(unit);
+  if(!key) return clean(unit);
+  return ageUnitLabels[key][Number(clean(value).replace(',','.'))===1?0:1];
+};
 const compactAge = state => {
   const raw=clean(state.ageValue);
-  const match=raw.match(/^(\d+(?:[.,]\d+)?)\s*(a|anos?|m|mes(?:es)?|d|dias?)$/i);
-  if(!match) return {value:raw,unit:clean(state.ageUnit)};
-  const unit=match[2].toLowerCase();
-  return {value:match[1],unit:unit.startsWith('a')?'anos':unit.startsWith('m')?'meses':'dias'};
+  const match=raw.match(/^(\d+(?:[.,]\d+)?)\s*(a|anos?|m|mes(?:es)?|mês|d|dias?|sem(?:anas?)?)$/iu);
+  if(!match) return {value:raw,unit:ageUnitText(raw,state.ageUnit)};
+  return {value:match[1],unit:ageUnitText(match[1],match[2])};
 };
+// Converte a idade digitada em meses. Aceita "6m", "3 anos", "20d", "3 semanas" e
+// combinações como "1 ano e 6 meses" ou "2a6m". Retorna null quando não for possível interpretar.
 const ageInMonths = state => {
-  const age=compactAge(state);
-  state={...state,ageValue:age.value,ageUnit:age.unit};
-  const value=Number(clean(state.ageValue).replace(',','.'));
-  if(!clean(state.ageValue) || !Number.isFinite(value) || value<0) return null;
-  return state.ageUnit==='anos'?value*12:state.ageUnit==='meses'?value:state.ageUnit==='dias'?value/30.4375:null;
+  const raw=clean(state.ageValue);
+  if(!raw) return null;
+  const text=/[a-zà-ú]/iu.test(raw)?raw:`${raw} ${clean(state.ageUnit)}`;
+  const token=/(\d+(?:[.,]\d+)?)\s*(anos?|meses|mes|mês|dias?|semanas?|sem|a|m|d)(?![\p{L}])/giu;
+  let months=0,found=false;
+  const rest=text.replace(token,(_,number,unit)=>{
+    const value=Number(number.replace(',','.'));
+    const key=ageUnitKey(unit);
+    months+=key==='a'?value*12:key==='m'?value:key==='d'?value/30.4375:value*7/30.4375;
+    found=true;
+    return ' ';
+  });
+  if(!found || /[\p{L}\d]/u.test(rest.replace(/\be\b/giu,''))) return null;
+  return Number.isFinite(months) && months>=0 ? months : null;
 };
+const vitalNumber = value => {
+  const text=clean(value).replace(',','.');
+  const number=text?Number(text):NaN;
+  return Number.isFinite(number) && number>0 ? number : null;
+};
+// Faixas de FC e FR por idade — AHA PALS 2020 (tabela de sinais vitais pediátricos).
+// Como o formulário não informa se a criança estava dormindo, usa-se a faixa ampla:
+// limite inferior do sono e limite superior da vigília.
+const vitalRanges = months =>
+  months<1 ? {heartRate:[90,205],respRate:[30,53]} :
+  months<12 ? {heartRate:[90,190],respRate:[30,53]} :
+  months<36 ? {heartRate:[80,140],respRate:[22,37]} :
+  months<72 ? {heartRate:[65,120],respRate:[20,28]} :
+  months<144 ? {heartRate:[58,118],respRate:[18,25]} :
+  {heartRate:[58,100],respRate:[12,20]};
+// Hipotensão sistólica (PALS 2020): <60 neonato, <70 lactente, <70 + 2 x idade em anos de 1 a 10 anos, <90 acima de 10 anos.
+const systolicHypotensionLimit = months => months<1 ? 60 : months<12 ? 70 : months<120 ? 70+2*Math.floor(months/12) : 90;
 const isTce = state => /\btce\b|trauma(?:tismo)?\s+(?:cranio|craniano|de cranio)|bateu (?:a )?cabeca/.test(normalized(state.chiefComplaint));
 const isOrthopedic = state => /trauma (?:em |de |no |na )?(?:membro|articulacao)|fratura|entorse|luxacao|dor articular|artrite|claudicacao|dor (?:no|na|em) (?:joelho|cotovelo|punho|tornozelo|ombro|quadril)/.test(normalized(state.chiefComplaint)) || selected(state.locomotorSymptoms).some(item=>['trauma em membro ou articulação','dor óssea, muscular ou articular'].includes(item));
 
@@ -355,7 +393,9 @@ export function getExamTemplate(state = {}) {
       'Sensibilidade superficial avaliada com respostas simétricas aos estímulos.',
       months!==null && months>=24?'Quando aplicáveis e avaliadas, sensibilidade palestésica e provas cerebelares preservadas, sem dismetria, disdiadococinesia ou tremores. Marcha avaliada estável, sem ataxia ou desvios. Reflexos osteotendíneos presentes e simétricos; resposta cutâneo-plantar flexora bilateral.':'',
       'Sem déficit neurológico focal evidente. Sem rigidez de nuca ou outros sinais meníngeos.',
-      months!==null && months<9?'Fontanela anterior normopalpável, sem retrações ou abaulamentos. Reflexos primitivos examinados compatíveis com a faixa etária.':''
+      // A fontanela anterior permanece aberta em cerca de metade das crianças até ~16 meses (Pindrik et al., Clin Pediatr 2014).
+      months!==null && months<18?'Fontanela anterior normopalpável, sem retrações ou abaulamentos.':'',
+      months!==null && months<9?'Reflexos primitivos examinados compatíveis com a faixa etária.':''
     ].filter(Boolean);
     model.neurological=neuro.join(' ');
     model.skull='Crânio sem deformidades ou afundamentos palpáveis. Ausência de sinais clínicos de fratura de base do crânio. Sem dor difusa à palpação do escalpo.';
@@ -365,8 +405,22 @@ export function getExamTemplate(state = {}) {
   if(clean(state.neuroGcs) && Number.isFinite(gcs) && gcs<15) {delete model.neurological;delete model.general;}
   const saturation=Number(clean(state.saturation).replace(',','.'));
   if((clean(state.saturation) && saturation<95) || state.saturationContext==='O₂ suplementar') {delete model.respiratory;delete model.general;}
+  // Febre: temperatura axilar >= 37,5 °C (>= 38 °C oral/retal) — SBP, Documento Científico nº 206/2025.
   const temperature=Number(clean(state.temperature).replace(',','.'));
-  if(clean(state.temperature) && (temperature>=38 || temperature<36)) delete model.general;
+  if(clean(state.temperature) && (temperature>=37.5 || temperature<36)) delete model.general;
+  // Sinais vitais fora do esperado não convivem com frases-padrão de normalidade
+  // ("normocárdica", "bem perfundidas", "eupneica"): a frase é omitida e o exame descrito pelo examinador prevalece.
+  const capillaryRefill=vitalNumber(state.capillaryRefill);
+  if(capillaryRefill!==null && capillaryRefill>2) delete model.cardiovascular;
+  if(months!==null) {
+    const ranges=vitalRanges(months);
+    const heartRate=vitalNumber(state.heartRate);
+    if(heartRate!==null && (heartRate<ranges.heartRate[0] || heartRate>ranges.heartRate[1])) delete model.cardiovascular;
+    const respRate=vitalNumber(state.respRate);
+    if(respRate!==null && (respRate<ranges.respRate[0] || respRate>ranges.respRate[1])) {delete model.respiratory;delete model.general;}
+    const systolic=vitalNumber(clean(state.bloodPressure).match(/^\s*(\d{2,3}(?:[.,]\d+)?)\s*(?:\/|x|X)/)?.[1]);
+    if(systolic!==null && systolic<systolicHypotensionLimit(months)) delete model.cardiovascular;
+  }
   return model;
 }
 
@@ -418,8 +472,8 @@ export function parsePhysicalExamChanges(value) {
 export function createPhysicalExam(state = {}) {
   const vitals=[
     labeled(`SatO₂${state.saturationContext==='ar ambiente'?' aa':state.saturationContext==='O₂ suplementar'?' em O₂ suplementar':''}`,state.saturation,'%'),
-    labeled('FC',state.heartRate,' bpm'),labeled('FR',state.respRate,' irpm'),labeled('TEC',state.capillaryRefill,' segundos'),
-    labeled('Temperatura',state.temperature,' °C'),labeled('ECGp',state.neuroGcs),labeled('PA',state.bloodPressure,' mmHg'),
+    labeled('FC',state.heartRate,' bpm'),labeled('FR',state.respRate,' irpm'),labeled('TEC',clean(state.capillaryRefill).replace('.',','),' segundos'),
+    labeled('Temperatura',clean(state.temperature).replace('.',','),' °C'),labeled('ECGp',state.neuroGcs),labeled('PA',state.bloodPressure,' mmHg'),
     labeled('Glicemia',state.glucose,' mg/dL'),labeled('ECG',state.ecg)
   ].filter(Boolean);
   const manual=parsePhysicalExamChanges(state.physicalExamChanges);
@@ -512,7 +566,10 @@ export function createSummary(state = {}) {
   state={...state};
   const ageEntry=compactAge(state);
   state.ageValue=ageEntry.value; state.ageUnit=ageEntry.unit;
-  state.weight=clean(state.weight).replace(/\s*kg$/i,'');
+  // Peso: aceita "14", "14 kg" ou valor em gramas ("3200 g"), que não recebe o sufixo "kg".
+  const weightGrams=clean(state.weight).match(/^(\d+(?:[.,]\d+)?)\s*(?:g|gr|gramas?)$/i);
+  state.weight=weightGrams?'':clean(state.weight).replace(/\s*kg$/i,'');
+  const weightText=weightGrams?`${weightGrams[1]} g`:clean(state.weight)?`${clean(state.weight)} kg`:'';
   const denies=value=>/^nega[.!]?$/i.test(clean(value));
   for(const [detail,status] of [['allergyDetails','allergyStatus'],['comorbidityDetails','comorbidityStatus'],['familyHistoryDetails','familyHistoryStatus'],['personalHistoryDetails','personalHistoryStatus']]) {
     if(!state[status] && denies(state[detail])) {
@@ -523,7 +580,7 @@ export function createSummary(state = {}) {
   const age = clean(state.ageValue) ? `${clean(state.ageValue)}${clean(state.ageUnit) ? ` ${clean(state.ageUnit)}` : ''}` : '';
   const identityClauses = [];
   if (age) identityClauses.push(`com ${age}`);
-  if (clean(state.weight)) identityClauses.push(`peso de ${clean(state.weight)} kg`);
+  if (weightText) identityClauses.push(`peso de ${weightText}`);
   if (clean(state.sex)) identityClauses.push(`sexo ${lowerFirst(state.sex)}`);
 
   const antecedents = [
