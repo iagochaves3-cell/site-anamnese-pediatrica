@@ -366,7 +366,7 @@ const systolicHypotensionLimit = months => months<1 ? 60 : months<12 ? 70 : mont
 const isTce = state => /\btce\b|trauma(?:tismo)?\s+(?:cranio|craniano|de cranio)|bateu (?:a )?cabeca/.test(normalized(state.chiefComplaint));
 const isOrthopedic = state => /trauma (?:em |de |no |na )?(?:membro|articulacao)|fratura|entorse|luxacao|dor articular|artrite|claudicacao|dor (?:no|na|em) (?:joelho|cotovelo|punho|tornozelo|ombro|quadril)/.test(normalized(state.chiefComplaint)) || selected(state.locomotorSymptoms).some(item=>['trauma em membro ou articulação','dor óssea, muscular ou articular'].includes(item));
 
-export function getExamTemplate(state = {}) {
+export function getExamTemplate(state = {}, options = {}) {
   const model={...normalTemplate};
   const months=ageInMonths(state);
   if(months===null || months<24) model.neurological=model.neurological.replace('Força muscular 5/5 globalmente, com tônus preservado. ','Tônus preservado. ');
@@ -387,6 +387,7 @@ export function getExamTemplate(state = {}) {
     model.skull='Crânio sem deformidades ou afundamentos palpáveis. Ausência de sinais clínicos de fratura de base do crânio. Sem dor difusa à palpação do escalpo.';
   }
   if(isOrthopedic(state)) model.locomotor='Marcha, quando aplicável, e postura preservadas, alinhamento corporal adequado e simetria bilateral dos membros. Ausência de deformidades, edema, sinais inflamatórios, dor à palpação, limitação da amplitude de movimento ou instabilidade articular. Movimentos ativos e passivos avaliados completos e indolores. Avaliações sensitiva, motora e vascular preservadas, com pulsos periféricos palpáveis e simétricos. Sem alterações nos testes especiais efetivamente realizados.';
+  if(options.contextOnly) return model;
   const gcs=Number(clean(state.neuroGcs).match(/^\d+(?:[.,]\d+)?/)?.[0]?.replace(',','.'));
   if(clean(state.neuroGcs) && Number.isFinite(gcs) && gcs<15) {delete model.neurological;delete model.general;}
   const saturation=Number(clean(state.saturation).replace(',','.'));
@@ -490,8 +491,11 @@ export function createPhysicalExam(state = {}) {
   // but suppresses the broad "bom estado geral" sentence to avoid contradiction.
   if(manual.some(record=>!record.systems.length)) delete model.general;
   for(const id of Object.keys(explicit)) delete model[id];
+  // Cópia exata do modelo do contexto (idade, TCE, queixa ortopédica) sai quando os sinais medidos retiraram o sistema;
+  // o modelo geral e o texto redigido pelo profissional ficam.
   const templateForSigns=getExamTemplate(state);
-  for(const id of Object.keys(explicit)) if(explicit[id]===normalTemplate[id] && !Object.hasOwn(templateForSigns,id)) delete explicit[id];
+  const contextTemplate=getExamTemplate(state,{contextOnly:true});
+  for(const id of Object.keys(explicit)) if(explicit[id]===contextTemplate[id] && !Object.hasOwn(templateForSigns,id)) delete explicit[id];
   if(manual.some(record=>record.systems.includes('neurological') && /sonol|hiporrespons|coma|convuls|paresia|plegia/.test(normalized(record.text)))) delete model.general;
   const directedNeuro=[['neuroPupils','as pupilas apresentaram'],['neuroOcular','os movimentos oculares apresentaram'],['neuroCranial','os pares cranianos e a face apresentaram'],['neuroMotor','a força e a motricidade apresentaram'],['neuroTone','o tônus e os movimentos apresentaram'],['neuroSensory','a sensibilidade apresentou'],['neuroCerebellar','a coordenação apresentou'],['neuroGait','a marcha e o equilíbrio apresentaram'],['neuroReflexes','os reflexos apresentaram'],['neuroMeningeal','quanto a foco e meningismo, observou-se'],['neuroSkull','no crânio e escalpo, observou-se'],['neuroFontanelle','a fontanela apresentou'],['neuroPrimitive','os reflexos primitivos apresentaram'],['neuroOther','adicionalmente, observou-se']].map(([id,prefix])=>detailClause(prefix,state[id])).filter(Boolean);
   if(directedNeuro.length) {explicit.neurological=directedNeuro.map(sentence).join(' ');delete model.neurological;}
@@ -848,6 +852,8 @@ function startWizard() {
     progress.setAttribute('aria-valuemax',String(active.length));
     progress.setAttribute('aria-valuenow',String(index+1));
     $('questionCard').innerHTML = questionHtml(question,state,index);
+    const examCheck=$('questionCard').querySelector('details.normal-model input[name="examTemplateConfirmed"]');
+    if(examCheck && !examCheck.checked && state.examTemplateConfirmed==='sim') { state.examTemplateConfirmed=''; state.examTemplatePreview=''; }
     $('prev').disabled = index === 0;
     $('prevTop').disabled = $('prev').disabled;
     $('next').disabled = false;
@@ -921,7 +927,7 @@ function startWizard() {
   $('prev').addEventListener('click',retreatStep);
   $('prevTop').addEventListener('click',retreatStep);
 
-  function syncExamPreview() {
+  function syncExamPreview(target) {
     const box=$('questionCard').querySelector('details.normal-model');
     if(!box) return;
     const preview=examPreviewText(state);
@@ -931,6 +937,7 @@ function startWizard() {
     const status=box.querySelector('#examTemplateStatus');
     if(!check) return;
     if(!check.checked) { state.examTemplatePreview=''; return; }
+    if(target===check) { state.examTemplatePreview=preview; if(status) status.textContent=''; return; }
     if(clean(state.examTemplatePreview) && state.examTemplatePreview!==preview) {
       check.checked=false; state.examTemplateConfirmed=''; state.examTemplatePreview='';
       if(status) status.textContent=examTemplateStaleMessage;
@@ -940,14 +947,14 @@ function startWizard() {
     if(status) status.textContent='';
   }
 
-  $('anamnesisForm').addEventListener('input',()=>{
+  $('anamnesisForm').addEventListener('input',event=>{
     saveCurrent();
-    syncExamPreview();
+    syncExamPreview(event.target);
     if (completed) renderSummary();
   });
-  $('anamnesisForm').addEventListener('change',()=>{
+  $('anamnesisForm').addEventListener('change',event=>{
     saveCurrent();
-    syncExamPreview();
+    syncExamPreview(event.target);
     if (completed) renderSummary();
   });
 
