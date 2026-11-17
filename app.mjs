@@ -357,7 +357,8 @@ const ageInMonths = state => {
     found=true;
     return ' ';
   });
-  if(!found || /[\p{L}\d]/u.test(rest.replace(/\be\b/giu,''))) return null;
+  // Só podem sobrar separadores entre as partes (espaço, vírgula e o conectivo "e"); qualquer outro resto ("-2a", ".5a") invalida a idade.
+  if(!found || rest.replace(/\be\b/giu,'').replace(/[\s,]/gu,'')!=='') return null;
   return Number.isFinite(months) && months>=0 ? months : null;
 };
 // Hipotensão sistólica (PALS 2020): <60 neonato, <70 lactente, <70 + 2 x idade em anos de 1 a 10 anos, <90 acima de 10 anos.
