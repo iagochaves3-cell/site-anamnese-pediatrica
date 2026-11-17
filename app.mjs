@@ -403,8 +403,8 @@ export function getExamTemplate(state = {}) {
   const refill=Number(clean(state.capillaryRefill).replace(',','.').replace(/\s*s(?:egundos?)?$/i,''));
   if(clean(state.capillaryRefill) && (!Number.isFinite(refill) || refill>2)) {delete model.cardiovascular;delete model.skin;delete model.general;}
   // Hipotensão sistólica (PALS 2020): sem idade não há como conferir, então a frase-padrão também é omitida.
-  const systolic=Number(clean(state.bloodPressure).match(/^\s*(\d{2,3}(?:[.,]\d+)?)\s*(?:\/|x|X)/)?.[1]?.replace(',','.'));
-  if(clean(state.bloodPressure).match(/^\s*\d{2,3}(?:[.,]\d+)?\s*(?:\/|x|X)/) && (months===null || systolic<systolicHypotensionLimit(months))) {delete model.cardiovascular;delete model.general;}
+  const systolic=Number(clean(state.bloodPressure).match(/^\s*(\d{1,3}(?:[.,]\d+)?)\s*(?:\/|x|X)/)?.[1]?.replace(',','.'));
+  if(clean(state.bloodPressure).match(/^\s*\d{1,3}(?:[.,]\d+)?\s*(?:\/|x|X)/) && (months===null || systolic<systolicHypotensionLimit(months))) {delete model.cardiovascular;delete model.general;}
   return model;
 }
 
