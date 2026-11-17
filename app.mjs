@@ -360,21 +360,6 @@ const ageInMonths = state => {
   if(!found || /[\p{L}\d]/u.test(rest.replace(/\be\b/giu,''))) return null;
   return Number.isFinite(months) && months>=0 ? months : null;
 };
-const vitalNumber = value => {
-  const text=clean(value).replace(',','.');
-  const number=text?Number(text):NaN;
-  return Number.isFinite(number) && number>0 ? number : null;
-};
-// Faixas de FC e FR por idade — AHA PALS 2020 (tabela de sinais vitais pediátricos).
-// Como o formulário não informa se a criança estava dormindo, usa-se a faixa ampla:
-// limite inferior do sono e limite superior da vigília.
-const vitalRanges = months =>
-  months<1 ? {heartRate:[90,205],respRate:[30,53]} :
-  months<12 ? {heartRate:[90,190],respRate:[30,53]} :
-  months<36 ? {heartRate:[80,140],respRate:[22,37]} :
-  months<72 ? {heartRate:[65,120],respRate:[20,28]} :
-  months<144 ? {heartRate:[58,118],respRate:[18,25]} :
-  {heartRate:[58,100],respRate:[12,20]};
 // Hipotensão sistólica (PALS 2020): <60 neonato, <70 lactente, <70 + 2 x idade em anos de 1 a 10 anos, <90 acima de 10 anos.
 const systolicHypotensionLimit = months => months<1 ? 60 : months<12 ? 70 : months<120 ? 70+2*Math.floor(months/12) : 90;
 const isTce = state => /\btce\b|trauma(?:tismo)?\s+(?:cranio|craniano|de cranio)|bateu (?:a )?cabeca/.test(normalized(state.chiefComplaint));
@@ -408,21 +393,31 @@ export function getExamTemplate(state = {}) {
   // Febre: temperatura axilar >= 37,5 °C (>= 38 °C oral/retal) — SBP, Documento Científico nº 206/2025.
   const temperature=Number(clean(state.temperature).replace(',','.'));
   if(clean(state.temperature) && (temperature>=37.5 || temperature<36)) delete model.general;
-  // Sinais vitais fora do esperado não convivem com frases-padrão de normalidade
-  // ("normocárdica", "bem perfundidas", "eupneica"): a frase é omitida e o exame descrito pelo examinador prevalece.
-  const capillaryRefill=vitalNumber(state.capillaryRefill);
-  if(capillaryRefill!==null && capillaryRefill>2) delete model.cardiovascular;
-  if(months!==null) {
-    const ranges=vitalRanges(months);
-    const heartRate=vitalNumber(state.heartRate);
-    if(heartRate!==null && (heartRate<ranges.heartRate[0] || heartRate>ranges.heartRate[1])) delete model.cardiovascular;
-    const respRate=vitalNumber(state.respRate);
-    if(respRate!==null && (respRate<ranges.respRate[0] || respRate>ranges.respRate[1])) {delete model.respiratory;delete model.general;}
-    const systolic=vitalNumber(clean(state.bloodPressure).match(/^\s*(\d{2,3}(?:[.,]\d+)?)\s*(?:\/|x|X)/)?.[1]);
-    if(systolic!==null && systolic<systolicHypotensionLimit(months)) delete model.cardiovascular;
-  }
+  // Auditoria 13/11/2026: o modelo normal não pode afirmar normocardia, eupneia ou boa perfusão
+  // quando FC, FR ou TEC medidos estão fora da faixa de vigília PALS/AHA 2020 ou a idade não permite conferir.
+  const band=vitalBand(months);
+  const heart=Number(clean(state.heartRate).replace(',','.'));
+  if(clean(state.heartRate) && (!band || !Number.isFinite(heart) || heart<band.hr[0] || heart>band.hr[1])) {delete model.cardiovascular;delete model.general;}
+  const resp=Number(clean(state.respRate).replace(',','.'));
+  if(clean(state.respRate) && (!band || !Number.isFinite(resp) || resp<band.rr[0] || resp>band.rr[1])) {delete model.respiratory;delete model.general;}
+  const refill=Number(clean(state.capillaryRefill).replace(',','.').replace(/\s*s(?:egundos?)?$/i,''));
+  if(clean(state.capillaryRefill) && (!Number.isFinite(refill) || refill>2)) {delete model.cardiovascular;delete model.skin;delete model.general;}
+  // Hipotensão sistólica (PALS 2020): sem idade não há como conferir, então a frase-padrão também é omitida.
+  const systolic=Number(clean(state.bloodPressure).match(/^\s*(\d{2,3}(?:[.,]\d+)?)\s*(?:\/|x|X)/)?.[1]?.replace(',','.'));
+  if(clean(state.bloodPressure).match(/^\s*\d{2,3}(?:[.,]\d+)?\s*(?:\/|x|X)/) && (months===null || systolic<systolicHypotensionLimit(months))) {delete model.cardiovascular;delete model.general;}
   return model;
 }
+
+// Faixas de vigília PALS/AHA 2020 (FC em bpm; FR em irpm). Fora da faixa, o modelo do sistema é retirado.
+const vitalBand = months => {
+  if(months===null || !Number.isFinite(months)) return null;
+  if(months<1) return {hr:[100,205],rr:[30,53]};
+  if(months<12) return {hr:[100,180],rr:[30,53]};
+  if(months<36) return {hr:[98,140],rr:[22,37]};
+  if(months<72) return {hr:[80,120],rr:[20,28]};
+  if(months<144) return {hr:[75,118],rr:[18,25]};
+  return {hr:[60,100],rr:[12,20]};
+};
 
 const systemAliases = {
   general:/^(?:estado geral|ectoscopia geral|geral|eg)\b/,
