@@ -367,8 +367,28 @@ export function getExamTemplate(state = {}) {
   if((clean(state.saturation) && saturation<95) || state.saturationContext==='O₂ suplementar') {delete model.respiratory;delete model.general;}
   const temperature=Number(clean(state.temperature).replace(',','.'));
   if(clean(state.temperature) && (temperature>=38 || temperature<36)) delete model.general;
+  // Auditoria 13/11/2026: o modelo normal não pode afirmar normocardia, eupneia ou boa perfusão
+  // quando FC, FR ou TEC medidos estão fora da faixa de vigília PALS/AHA 2020 ou a idade não permite conferir.
+  const band=vitalBand(months);
+  const heart=Number(clean(state.heartRate).replace(',','.'));
+  if(clean(state.heartRate) && (!band || !Number.isFinite(heart) || heart<band.hr[0] || heart>band.hr[1])) {delete model.cardiovascular;delete model.general;}
+  const resp=Number(clean(state.respRate).replace(',','.'));
+  if(clean(state.respRate) && (!band || !Number.isFinite(resp) || resp<band.rr[0] || resp>band.rr[1])) {delete model.respiratory;delete model.general;}
+  const refill=Number(clean(state.capillaryRefill).replace(',','.').replace(/\s*s(?:egundos?)?$/i,''));
+  if(clean(state.capillaryRefill) && (!Number.isFinite(refill) || refill>2)) {delete model.cardiovascular;delete model.skin;delete model.general;}
   return model;
 }
+
+// Faixas de vigília PALS/AHA 2020 (FC em bpm; FR em irpm). Fora da faixa, o modelo do sistema é retirado.
+const vitalBand = months => {
+  if(months===null || !Number.isFinite(months)) return null;
+  if(months<1) return {hr:[100,205],rr:[30,53]};
+  if(months<12) return {hr:[100,180],rr:[30,53]};
+  if(months<36) return {hr:[98,140],rr:[22,37]};
+  if(months<72) return {hr:[80,120],rr:[20,28]};
+  if(months<144) return {hr:[75,118],rr:[18,25]};
+  return {hr:[60,100],rr:[12,20]};
+};
 
 const systemAliases = {
   general:/^(?:estado geral|ectoscopia geral|geral|eg)\b/,
